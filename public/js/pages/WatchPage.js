@@ -470,7 +470,7 @@ class WatchPage {
                     // TODO: Move remux to session logic if seeking is needed for TS files
                     console.log('[WatchPage] Auto: Using remux (.ts container)');
                     this.updateTranscodeStatus('remuxing', 'Remux (Auto)');
-                    const finalUrl = `/api/remux?url=${encodeURIComponent(url)}`;
+                    const finalUrl = `/api/remux?url=${encodeURIComponent(url)}&audioCodec=${encodeURIComponent(info.audio || '')}`;
                     this.video.src = finalUrl;
                     this.video.play().catch(e => {
                         if (e.name !== 'AbortError') console.error('[WatchPage] Autoplay error:', e);
@@ -528,7 +528,17 @@ class WatchPage {
         if (settings.forceRemux && isRawTs) {
             console.log('[WatchPage] Force Remux enabled');
             this.updateTranscodeStatus('remuxing', 'Remux (Force)');
-            const finalUrl = `/api/remux?url=${encodeURIComponent(url)}`;
+
+            // Probe to get audio codec so the server only applies aac_adtstoasc when safe
+            let audioCodec = '';
+            try {
+                const ua = settings.userAgentPreset === 'custom' ? settings.userAgentCustom : settings.userAgentPreset;
+                const probeRes = await fetch(`/api/probe?url=${encodeURIComponent(url)}&ua=${encodeURIComponent(ua || '')}`);
+                const info = await probeRes.json();
+                audioCodec = info.audio || '';
+            } catch (e) { console.warn('Probe failed for force remux, skipping aac_adtstoasc'); }
+
+            const finalUrl = `/api/remux?url=${encodeURIComponent(url)}&audioCodec=${encodeURIComponent(audioCodec)}`;
             this.video.src = finalUrl;
             this.video.play().catch(e => {
                 if (e.name !== 'AbortError') console.error('[WatchPage] Autoplay error:', e);

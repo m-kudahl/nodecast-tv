@@ -935,7 +935,7 @@ class VideoPlayer {
                         // Raw .ts container - use remux
                         console.log('[Player] Auto: Using remux (.ts container)');
                         this.updateTranscodeStatus('remuxing', 'Remux (Auto)');
-                        const remuxUrl = `/api/remux?url=${encodeURIComponent(streamUrl)}`;
+                        const remuxUrl = this.getRemuxUrl(streamUrl, info.audio);
                         this.currentUrl = remuxUrl;
                         this.video.src = remuxUrl;
                         this.video.play().catch(e => {
@@ -1054,7 +1054,16 @@ class VideoPlayer {
                 console.log('[Player] Force Remux enabled. Routing through FFmpeg remux...');
                 console.log('[Player] Stream type:', isRawTs ? 'Raw TS' : 'Extension-less (assumed TS)');
                 this.updateTranscodeStatus('remuxing', 'Remux (Force)');
-                const remuxUrl = this.getRemuxUrl(streamUrl);
+
+                // Probe to get audio codec so the server only applies aac_adtstoasc when safe
+                let audioCodec = '';
+                try {
+                    const probeRes = await fetch(`/api/probe?url=${encodeURIComponent(streamUrl)}`);
+                    const info = await probeRes.json();
+                    audioCodec = info.audio || '';
+                } catch (e) { console.warn('Probe failed for force remux, skipping aac_adtstoasc'); }
+
+                const remuxUrl = this.getRemuxUrl(streamUrl, audioCodec);
                 this.video.src = remuxUrl;
                 this.video.play().catch(e => {
                     if (e.name !== 'AbortError') console.log('[Player] Autoplay prevented:', e);
@@ -1368,8 +1377,8 @@ class VideoPlayer {
      * Get remuxed URL for a stream (container conversion only, no re-encoding)
      * Used for raw .ts streams that browsers can't play directly
      */
-    getRemuxUrl(url) {
-        return `/api/remux?url=${encodeURIComponent(url)}`;
+    getRemuxUrl(url, audioCodec) {
+        return `/api/remux?url=${encodeURIComponent(url)}&audioCodec=${encodeURIComponent(audioCodec || '')}`;
     }
 
     /**
