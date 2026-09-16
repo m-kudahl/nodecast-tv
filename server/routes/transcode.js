@@ -98,6 +98,9 @@ router.post('/session', async (req, res) => {
  * GET /api/transcode/:sessionId/stream.m3u8
  */
 router.get('/:sessionId/stream.m3u8', async (req, res) => {
+    // The Chromecast's receiver is a web app on Google's origin, so it fetches the
+    // playlist and segments cross-origin - without this it sits on "loading" forever.
+    res.setHeader('Access-Control-Allow-Origin', '*');
     const { sessionId } = req.params;
     const session = transcodeSession.getSession(sessionId);
 
@@ -120,6 +123,7 @@ router.get('/:sessionId/stream.m3u8', async (req, res) => {
  * GET /api/transcode/:sessionId/:segment.ts
  */
 router.get('/:sessionId/:segment', async (req, res) => {
+    res.setHeader('Access-Control-Allow-Origin', '*'); // see stream.m3u8 above
     const { sessionId, segment } = req.params;
 
     // Only handle .ts files

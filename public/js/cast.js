@@ -124,6 +124,9 @@ class CastController {
 
         const media = new chrome.cast.media.MediaInfo(url, 'application/x-mpegurl');
         media.streamType = chrome.cast.media.StreamType.LIVE;
+        // The session muxes MPEG-TS segments; say so rather than let the receiver guess.
+        if (chrome.cast.media.HlsSegmentFormat) media.hlsSegmentFormat = chrome.cast.media.HlsSegmentFormat.TS;
+        if (chrome.cast.media.HlsVideoSegmentFormat) media.hlsVideoSegmentFormat = chrome.cast.media.HlsVideoSegmentFormat.MPEG2_TS;
         media.metadata = new chrome.cast.media.GenericMediaMetadata();
         media.metadata.title = channel.name || 'Live TV';
         if (channel.tvgLogo) media.metadata.images = [new chrome.cast.Image(channel.tvgLogo)];
