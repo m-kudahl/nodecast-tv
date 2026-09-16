@@ -9,7 +9,7 @@
  * Results are cached at startup and exposed via API.
  */
 
-const { execSync, exec } = require('child_process');
+const { execSync, exec, spawn } = require('child_process');
 const os = require('os');
 
 // Cache detection results
@@ -24,6 +24,52 @@ const NVDEC_MIN_COMPUTE = {
     hevc: 5.0,   // Maxwell GM206+
     av1: 8.0,    // Ada Lovelace+
 };
+
+/**
+ * Encode five frames of a test pattern and see whether it actually works.
+ *
+ * A render node existing says nothing about whether the driver can encode with it.
+ * On new AMD parts a broken Mesa VPE path gives a black screen and a log full of
+ * "SIVPE ERROR" while every device check passes, so the encoder has to be tried
+ * rather than inferred. Costs about a second, once, at startup.
+ */
+function verifyEncoder(encoder, device, ffmpegPath = 'ffmpeg') {
+    const common = ['-hide_banner', '-loglevel', 'error',
+        '-f', 'lavfi', '-i', 'testsrc=size=640x360:rate=25', '-frames:v', '5'];
+
+    const perEncoder = {
+        vaapi: ['-vaapi_device', device || '/dev/dri/renderD128',
+            '-vf', 'format=nv12,hwupload,scale_vaapi=w=-2:h=360:format=nv12',
+            '-c:v', 'h264_vaapi'],
+        nvenc: ['-c:v', 'h264_nvenc'],
+        qsv: ['-c:v', 'h264_qsv'],
+        amf: ['-c:v', 'h264_amf']
+    };
+    if (!perEncoder[encoder]) return Promise.resolve(true);
+
+    return new Promise(resolve => {
+        const args = [...common, ...perEncoder[encoder], '-f', 'null', '-'];
+        let stderr = '';
+        let proc;
+        try {
+            proc = spawn(ffmpegPath, args);
+        } catch (err) {
+            return resolve(false);
+        }
+        const timer = setTimeout(() => { try { proc.kill('SIGKILL'); } catch {} resolve(false); }, 15000);
+        proc.stderr.on('data', d => { stderr += d.toString(); });
+        proc.on('error', () => { clearTimeout(timer); resolve(false); });
+        proc.on('close', code => {
+            clearTimeout(timer);
+            // Some drivers report success and still spew errors for every frame.
+            const ok = code === 0 && !/SIVPE ERROR|No VA display|Failed to (initialise|create)/i.test(stderr);
+            if (!ok) {
+                console.log(`[HwDetect] ${encoder} failed a test encode: ${(stderr.trim().split('\n')[0] || `exit ${code}`)}`);
+            }
+            resolve(ok);
+        });
+    });
+}
 
 /**
  * Detect NVIDIA GPU and its capabilities
@@ -228,16 +274,23 @@ async function detect() {
         detectAMF()
     ]);
 
-    // Determine recommended encoder (priority: NVENC > AMF > QSV > VAAPI > Software)
+    // Recommend the first candidate that is present AND actually encodes.
+    // Priority: NVENC > AMF > QSV > VAAPI > Software.
+    const candidates = [
+        ['nvenc', nvidia.available, null],
+        ['amf', amf.available, null],
+        ['qsv', qsv.available, null],
+        ['vaapi', vaapi.available, vaapi.device]
+    ];
+
     let recommended = 'software';
-    if (nvidia.available) {
-        recommended = 'nvenc';
-    } else if (amf.available) {
-        recommended = 'amf';
-    } else if (qsv.available) {
-        recommended = 'qsv';
-    } else if (vaapi.available) {
-        recommended = 'vaapi';
+    for (const [name, present, device] of candidates) {
+        if (!present) continue;
+        if (await verifyEncoder(name, device)) {
+            recommended = name;
+            break;
+        }
+        console.log(`[HwDetect] ${name} is present but cannot encode - skipping it`);
     }
 
     hwCapabilities = {
@@ -272,6 +325,7 @@ async function refresh() {
 
 module.exports = {
     detect,
+    verifyEncoder,
     getCapabilities,
     refresh,
     detectNvidia,

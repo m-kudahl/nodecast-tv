@@ -424,10 +424,7 @@ class TranscodeSession extends EventEmitter {
         const useUpscale = this.options.upscaleEnabled;
         const upscaleMethod = this.options.upscaleMethod || 'hardware';
         const sourceHeight = this.options.videoHeight | 0;
-
-        const effectiveHeight = useUpscale
-            ? height
-            : (sourceHeight > 0 ? Math.min(height, sourceHeight) : height);
+        const effectiveHeight = this.effectiveHeight(height);
 
         // Log upscaling / passthrough decision
         if (useUpscale) {
@@ -542,13 +539,33 @@ class TranscodeSession extends EventEmitter {
      * Software encoder arguments (fallback)
      */
     /**
+     * H.264 level for an output height. Hardcoding 4.1 makes x264 emit a stream
+     * whose declared level is a lie at anything above 1080p - "frame MB size
+     * (240x135) > level limit (8192)" - and decoders are entitled to refuse it.
+     */
+    h264Level(height) {
+        const h = this.effectiveHeight(height);
+        if (h > 1440) return '5.1';
+        if (h > 1080) return '5.0';
+        return '4.1'; // 1080p and below; also what a Chromecast wants
+    }
+
+    /**
+     * The height we will actually output: the configured cap, but never more than
+     * the source has unless we were asked to upscale.
+     */
+    effectiveHeight(height) {
+        if (this.options.upscaleEnabled) return height;
+        const source = this.options.videoHeight | 0;
+        return source > 0 ? Math.min(height, source) : height;
+    }
+
+    /**
      * Ceiling for the encoder, so one busy scene can't spike past what the player
      * can pull down. Roughly h264 "good enough for live" rates per resolution.
      */
     bitrateCapKbps(height) {
-        // Don't budget for more than the source actually has (unless we're upscaling).
-        const src = this.options.videoHeight | 0;
-        if (src > 0 && !this.options.upscaleEnabled) height = Math.min(height, src);
+        height = this.effectiveHeight(height);
         if (height >= 2160) return 20000;
         if (height >= 1080) return 8000;
         if (height >= 720) return 4500;
@@ -566,7 +583,7 @@ class TranscodeSession extends EventEmitter {
             '-maxrate', `${this.bitrateCapKbps(height)}k`,
             '-bufsize', `${this.bitrateCapKbps(height) * 2}k`,
             '-profile:v', 'high',
-            '-level', '4.1',
+            '-level', this.h264Level(height),
             '-pix_fmt', 'yuv420p'      // Force 8-bit output for compatibility (fixes 10-bit input errors)
         );
     }

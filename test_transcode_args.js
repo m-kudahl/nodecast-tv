@@ -38,4 +38,14 @@ assert.strictEqual(flag(live, '-c:a'), 'aac');
 const aac = argsFor({ isLive: true, audioCodec: 'aac', audioChannels: 2 });
 assert.strictEqual(flag(aac, '-c:a'), 'copy');
 
-console.log('ok');
+// --- hardware encoders are verified, not inferred from a device file existing ---
+// (issue #87: render node present, Mesa VPE broken, black screen, no fallback)
+const { verifyEncoder } = require('./server/services/hwDetect');
+
+verifyEncoder('vaapi', '/dev/dri/renderD999').then(ok => {
+    assert.strictEqual(ok, false, 'a render node that cannot encode must not verify');
+    return verifyEncoder('software');
+}).then(ok => {
+    assert.strictEqual(ok, true, 'software needs no device and always verifies');
+    console.log('ok');
+});
