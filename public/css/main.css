@@ -3636,6 +3636,11 @@ kbd {
   height: 24px;
 }
 
+/* Cast button, lit while a Chromecast is connected */
+.watch-btn.active {
+  color: var(--color-accent, #4a9eff);
+}
+
 /* Captions Menu */
 .watch-captions-wrapper {
   position: relative;

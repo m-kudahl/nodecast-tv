@@ -762,6 +762,14 @@ class VideoPlayer {
      * Play a channel
      */
     async play(channel, streamUrl) {
+        // While a Chromecast is connected, picking a channel sends it to the TV
+        // rather than starting a second copy playing here.
+        if (window.castController?.isCasting) {
+            this.currentChannel = channel;
+            this.currentStreamUrl = streamUrl;
+            return window.castController.castChannel(channel, streamUrl);
+        }
+
         // Guard against overlapping play() calls (rapid channel switching)
         const playId = ++this._playId;
         this.currentChannel = channel;

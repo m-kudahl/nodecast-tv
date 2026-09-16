@@ -190,6 +190,24 @@ app.get('/api/version', (req, res) => {
     res.json({ version: pkg.version });
 });
 
+// A Chromecast fetches the media itself, so it needs an address that resolves on
+// the LAN - 'localhost' means the Chromecast, not this server. The browser only
+// asks when the page is being viewed on localhost; otherwise whatever host the
+// user typed already demonstrably routes.
+app.get('/api/cast/host', (req, res) => {
+    const nets = require('os').networkInterfaces();
+    const addresses = [];
+    for (const [name, ifaces] of Object.entries(nets)) {
+        for (const iface of ifaces || []) {
+            if (iface.family !== 'IPv4' || iface.internal) continue;
+            // Skip interfaces a Chromecast on the local network can't be reached over.
+            if (/^(docker|br-|veth|tun|tap|virbr|zt|wg)/.test(name)) continue;
+            addresses.push({ name, address: iface.address });
+        }
+    }
+    res.json({ addresses, port: PORT });
+});
+
 // SPA fallback - serve index.html for all non-API routes
 app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
