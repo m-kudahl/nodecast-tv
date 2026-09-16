@@ -729,7 +729,9 @@ class VideoPlayer {
         const res = await fetch('/api/transcode/session', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url, ...options })
+            // Everything this player plays is Live TV - the server rolls a segment
+            // window for it instead of keeping every segment on disk forever.
+            body: JSON.stringify({ url, isLive: true, ...options })
         });
         if (!res.ok) {
             const detail = await res.json().catch(() => ({}));

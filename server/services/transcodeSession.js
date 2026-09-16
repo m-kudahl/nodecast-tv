@@ -26,9 +26,11 @@ const sessions = new Map();
 const CACHE_DIR = path.join(process.cwd(), 'transcode-cache');
 
 // Session settings
-const SESSION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes idle timeout
+const SESSION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes idle timeout (VOD - you pause films)
+const LIVE_SESSION_TIMEOUT_MS = 2 * 60 * 1000; // live: nobody pauses live TV for 2 minutes
 const SEGMENT_DURATION = 4; // seconds per HLS segment
-const CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // Check every 5 minutes
+const LIVE_WINDOW_SEGMENTS = 20; // ~80s rolling window for live channels
+const CLEANUP_INTERVAL_MS = 60 * 1000; // Check every minute (live sessions expire in 2)
 
 /**
  * Generate a unique session ID
@@ -239,6 +241,9 @@ class TranscodeSession extends EventEmitter {
             }
         } else {
             this.addVideoEncoderArgs(args, encoder);
+            // Force a keyframe on every segment boundary, otherwise the encoder's own
+            // GOP (10s by default) decides segment length and -hls_time is ignored.
+            args.push('-force_key_frames', `expr:gte(t,n_forced*${SEGMENT_DURATION})`);
         }
 
         // Audio: Apply mix preset
@@ -282,9 +287,27 @@ class TranscodeSession extends EventEmitter {
         // HLS output options
         args.push(
             '-f', 'hls',
-            '-hls_time', String(SEGMENT_DURATION),
-            '-hls_list_size', '0', // Keep all segments in playlist
-            '-hls_flags', 'independent_segments+append_list',
+            '-hls_time', String(SEGMENT_DURATION)
+        );
+
+        if (this.options.isLive) {
+            // Live has no end and nothing to seek back to, so roll a window instead
+            // of keeping every segment: at ~4 Mbit/s an unbounded list is ~1.8 GB and
+            // a 900-entry playlist per hour, re-fetched by the player every few seconds.
+            args.push(
+                '-hls_list_size', String(LIVE_WINDOW_SEGMENTS),
+                '-hls_delete_threshold', '5', // grace for segments still being fetched
+                '-hls_flags', 'independent_segments+delete_segments+omit_endlist'
+            );
+        } else {
+            // VOD: keep the whole list, the player seeks within it.
+            args.push(
+                '-hls_list_size', '0',
+                '-hls_flags', 'independent_segments+append_list'
+            );
+        }
+
+        args.push(
             '-hls_segment_type', 'mpegts',
             '-hls_segment_filename', path.join(this.dir, 'seg%04d.ts'),
             this.playlistPath
@@ -489,8 +512,10 @@ class TranscodeSession extends EventEmitter {
         // Note: -global_quality is the portable way to set quality for VAAPI
         args.push(
             '-c:v', 'h264_vaapi',
-            '-profile:v', 'main',      // Use main profile for compatibility
+            '-profile:v', 'high',      // Same support as main in every browser, better quality per bit
             '-global_quality', String(qp),
+            '-maxrate', `${this.bitrateCapKbps(height)}k`,
+            '-bufsize', `${this.bitrateCapKbps(height) * 2}k`,
             '-bf', '3',
             '-pix_fmt', 'yuv420p'      // Force 8-bit output for compatibility
         );
@@ -516,6 +541,20 @@ class TranscodeSession extends EventEmitter {
     /**
      * Software encoder arguments (fallback)
      */
+    /**
+     * Ceiling for the encoder, so one busy scene can't spike past what the player
+     * can pull down. Roughly h264 "good enough for live" rates per resolution.
+     */
+    bitrateCapKbps(height) {
+        // Don't budget for more than the source actually has (unless we're upscaling).
+        const src = this.options.videoHeight | 0;
+        if (src > 0 && !this.options.upscaleEnabled) height = Math.min(height, src);
+        if (height >= 2160) return 20000;
+        if (height >= 1080) return 8000;
+        if (height >= 720) return 4500;
+        return 2500;
+    }
+
     addSoftwareEncoderArgs(args, height, crf) {
         // Software scaling (use Lanczos for upscaling if enabled)
         args.push('-vf', this.buildScaleFilter('software', height));
@@ -524,6 +563,8 @@ class TranscodeSession extends EventEmitter {
             '-c:v', 'libx264',
             '-preset', 'veryfast',     // Fast for real-time
             '-crf', String(crf),
+            '-maxrate', `${this.bitrateCapKbps(height)}k`,
+            '-bufsize', `${this.bitrateCapKbps(height) * 2}k`,
             '-profile:v', 'high',
             '-level', '4.1',
             '-pix_fmt', 'yuv420p'      // Force 8-bit output for compatibility (fixes 10-bit input errors)
@@ -718,7 +759,10 @@ async function removeSession(sessionId) {
 async function cleanupStaleSessions() {
     const now = Date.now();
     for (const [id, session] of sessions) {
-        if (now - session.lastAccess > SESSION_TIMEOUT_MS) {
+        // A live session that nobody is fetching from is still holding a connection
+        // open to the provider, and providers cap concurrent connections hard.
+        const timeout = session.options.isLive ? LIVE_SESSION_TIMEOUT_MS : SESSION_TIMEOUT_MS;
+        if (now - session.lastAccess > timeout) {
             console.log(`[TranscodeSession] Cleaning up stale session ${id}`);
             await removeSession(id);
         }

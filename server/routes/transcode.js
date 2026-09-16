@@ -29,7 +29,7 @@ transcodeSession.startCleanupInterval();
  * Body: { url: string, seekOffset?: number }
  */
 router.post('/session', async (req, res) => {
-    const { url, seekOffset, videoMode, videoCodec, audioCodec, audioChannels, videoHeight } = req.body;
+    const { url, seekOffset, videoMode, videoCodec, audioCodec, audioChannels, videoHeight, isLive } = req.body;
 
     if (!url) {
         return res.status(400).json({ error: 'URL is required' });
@@ -56,7 +56,8 @@ router.post('/session', async (req, res) => {
             videoCodec: videoCodec, // 'h264', 'hevc', etc.
             audioCodec: audioCodec, // 'aac', 'ac3', etc.
             audioChannels: audioChannels, // number of channels (2=stereo)
-            videoHeight: videoHeight // source height from probe; used to cap max-resolution in JS
+            videoHeight: videoHeight, // source height from probe; used to cap max-resolution in JS
+            isLive: !!isLive // live channels roll a segment window instead of keeping every segment
         });
 
         // Only start and wait if not already running (getOrCreateSession may return existing)
