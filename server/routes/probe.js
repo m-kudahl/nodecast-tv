@@ -22,6 +22,8 @@ const probeCache = new Map();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 // Browser-compatible codecs
+const { requireStreamUrl, PROTOCOL_WHITELIST } = require('../safeUrl');
+
 const BROWSER_VIDEO_CODECS = ['h264', 'avc', 'avc1'];
 const BROWSER_AUDIO_CODECS = ['aac', 'mp3', 'opus', 'vorbis'];
 
@@ -32,6 +34,8 @@ function probeStream(url, ffprobePath, userAgent = null, timeout = 15000) {
     return new Promise((resolve, reject) => {
         const args = [
             '-v', 'error',
+            // ffmpeg speaks file:, concat:, subfile: - keep it on the network
+            '-protocol_whitelist', PROTOCOL_WHITELIST,
             '-user_agent', userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
             '-http_persistent', '0',
             '-reconnect', '1',
@@ -149,6 +153,8 @@ router.get('/', async (req, res) => {
     if (!url) {
         return res.status(400).json({ error: 'URL parameter is required' });
     }
+    const safeUrl = requireStreamUrl(url, res);
+    if (!safeUrl) return;
 
     const ffprobePath = req.app.locals.ffprobePath;
     const cacheKey = `${url}${ua ? `|${ua}` : ''}`;

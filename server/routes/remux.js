@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { spawn } = require('child_process');
 const db = require('../db');
+const { requireStreamUrl, PROTOCOL_WHITELIST } = require('../safeUrl');
 
 /**
  * Remux stream (container conversion only)
@@ -18,6 +19,8 @@ router.get('/', async (req, res) => {
     if (!url) {
         return res.status(400).json({ error: 'URL parameter is required' });
     }
+    const safeUrl = requireStreamUrl(url, res);
+    if (!safeUrl) return;
 
     const ffmpegPath = req.app.locals.ffmpegPath || 'ffmpeg';
 
@@ -33,6 +36,8 @@ router.get('/', async (req, res) => {
     const args = [
         '-hide_banner',
         '-loglevel', 'warning',
+        // ffmpeg speaks file:, concat:, subfile: - keep it on the network
+        '-protocol_whitelist', PROTOCOL_WHITELIST,
         '-user_agent', userAgent,
         // Standard probe size to handle complex containers (MKV) correctly
         '-probesize', '5000000',

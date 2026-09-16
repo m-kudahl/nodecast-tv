@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs').promises;
 const db = require('../db');
 const transcodeSession = require('../services/transcodeSession');
+const { requireStreamUrl, PROTOCOL_WHITELIST } = require('../safeUrl');
 
 /**
  * Transcode Routes
@@ -34,6 +35,8 @@ router.post('/session', async (req, res) => {
     if (!url) {
         return res.status(400).json({ error: 'URL is required' });
     }
+    const safeUrl = requireStreamUrl(url, res);
+    if (!safeUrl) return;
 
     const ffmpegPath = req.app.locals.ffmpegPath || 'ffmpeg';
     const settings = await db.settings.get();
@@ -174,6 +177,8 @@ router.get('/', async (req, res) => {
     if (!url) {
         return res.status(400).json({ error: 'URL parameter is required' });
     }
+    const safeUrl = requireStreamUrl(url, res);
+    if (!safeUrl) return;
 
     const ffmpegPath = req.app.locals.ffmpegPath || 'ffmpeg';
 
@@ -191,6 +196,8 @@ router.get('/', async (req, res) => {
     const args = [
         '-hide_banner',
         '-loglevel', 'warning',
+        // ffmpeg speaks file:, concat:, subfile: - keep it on the network
+        '-protocol_whitelist', PROTOCOL_WHITELIST,
         '-user_agent', userAgent,
         // Faster startup - reduced probe/analyze for quicker first bytes
         '-probesize', '2000000', // 2MB (reduced from 5MB)

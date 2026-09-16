@@ -18,6 +18,7 @@ const fs = require('fs').promises;
 const crypto = require('crypto');
 const EventEmitter = require('events');
 const hwDetect = require('./hwDetect');
+const { PROTOCOL_WHITELIST } = require('../safeUrl');
 
 // Session storage
 const sessions = new Map();
@@ -186,6 +187,8 @@ class TranscodeSession extends EventEmitter {
         const args = [
             '-hide_banner',
             '-loglevel', 'warning',
+            // ffmpeg speaks file:, concat:, subfile: - keep it on the network
+            '-protocol_whitelist', PROTOCOL_WHITELIST,
             '-user_agent', this.options.userAgent,
         ];
 

@@ -10,8 +10,8 @@ const { Strategy: LocalStrategy } = require('passport-local');
  * Using Passport.js with JWT tokens
  */
 
-// JWT Secret - In production, use environment variable
-const JWT_SECRET = process.env.JWT_SECRET || 'nodecast-tv-secret-key-change-in-production';
+// JWT_SECRET if set, otherwise a per-install key generated on first run.
+const JWT_SECRET = require('./secret');
 const JWT_EXPIRY = '24h';
 
 /**
