@@ -94,6 +94,10 @@ class WatchPage {
         // Watch history
         this.historyInterval = null;
 
+        // Stall recovery
+        this.watchdog = null;
+        this.recovering = false;
+
         this.init();
     }
 
@@ -227,6 +231,21 @@ class WatchPage {
             if (this.captionsMenuOpen && !this.captionsMenu?.contains(e.target) && e.target !== this.captionsBtn) {
                 this.closeCaptionsMenu();
             }
+        });
+
+        this.watchdog = new StallWatchdog(() => this.video, {
+            isActive: () => !!this.content && !this.recovering,
+            kick: () => this.kickBuffer(),
+            recover: () => this.hls?.recoverMediaError(),
+            reload: () => this.reloadCurrentVideo()
+        });
+        this.watchdog.start();
+
+        // Returning to a hidden/throttled tab: if the buffer ran dry while we were
+        // away, resume loading rather than sitting on a frozen frame.
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden || !this.content || this.video?.paused) return;
+            if (this.video.readyState < 3) this.kickBuffer();
         });
 
         // Hide scroll hint after scrolling
@@ -616,6 +635,52 @@ class WatchPage {
         if (this.volumeSlider) this.volumeSlider.value = savedVolume;
     }
 
+    /**
+     * Cheap recovery: resume loading and step over a hole in the buffer.
+     */
+    kickBuffer() {
+        const v = this.video;
+        if (!v) return;
+        try {
+            this.hls?.startLoad();
+            const buf = v.buffered;
+            for (let i = 0; i < buf.length; i++) {
+                // Seek to the start of the next buffered range if we're stuck in a gap.
+                if (buf.start(i) > v.currentTime && buf.start(i) - v.currentTime < 10) {
+                    v.currentTime = buf.start(i) + 0.1;
+                    break;
+                }
+            }
+            v.play().catch(() => {});
+        } catch (e) {
+            console.warn('[Watchdog] kick failed:', e);
+        }
+    }
+
+    /**
+     * Last resort: reload the stream at the position we were watching - the same
+     * thing as backing out and reopening, minus losing your place.
+     */
+    async reloadCurrentVideo() {
+        if (this.recovering || !this.content || !this.currentUrl) return;
+        const url = this.currentUrl;
+        const at = this.video?.currentTime || 0;
+        this.recovering = true;
+        try {
+            // loadVideo() applies resumeTime on loadedmetadata (and as the transcode
+            // seek offset), so playback comes back where it froze.
+            this.resumeTime = at;
+            await this.loadVideo(url);
+            // loadVideo() -> stop() tore these down; play() normally sets them up.
+            this.showNowPlaying(this.content.title);
+            this.startHistoryTracking();
+        } catch (e) {
+            console.warn('[Watchdog] reload failed:', e);
+        } finally {
+            this.recovering = false;
+        }
+    }
+
     stop() {
         // Stop history tracking and save final progress
         this.stopHistoryTracking();
@@ -641,6 +706,7 @@ class WatchPage {
             this.video.load();
         }
 
+        this.watchdog?.reset();
         this.hideNowPlaying();
     }
 
