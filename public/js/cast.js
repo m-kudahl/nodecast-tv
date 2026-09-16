@@ -16,6 +16,8 @@
 class CastController {
     constructor() {
         this.available = false;
+        this.sdkReady = false;
+        this.sdkFailure = null;     // set if the SDK loaded but refused (e.g. Media Router off)
         this.sessionId = null;      // our transcode session, not the cast session
         this.channel = null;
         this.button = document.getElementById('btn-cast');
@@ -30,14 +32,22 @@ class CastController {
             autoJoinPolicy: chrome.cast.AutoJoinPolicy.ORIGIN_SCOPED
         });
 
+        const applyState = (state) => {
+            this.available = state !== cast.framework.CastState.NO_DEVICES_AVAILABLE;
+            this.button?.classList.toggle('active', this.isCasting);
+            if (this.button) {
+                this.button.title = this.available
+                    ? 'Cast to a Chromecast'
+                    : 'No Chromecast found on this network yet';
+            }
+        };
         context.addEventListener(
             cast.framework.CastContextEventType.CAST_STATE_CHANGED,
-            (e) => {
-                this.available = e.castState !== cast.framework.CastState.NO_DEVICES_AVAILABLE;
-                this.button?.classList.toggle('hidden', !this.available);
-                this.button?.classList.toggle('active', this.isCasting);
-            }
+            (e) => applyState(e.castState)
         );
+        // Discovery may already have finished before the listener was attached.
+        applyState(context.getCastState());
+        this.sdkReady = true;
 
         context.addEventListener(
             cast.framework.CastContextEventType.SESSION_STATE_CHANGED,
@@ -57,7 +67,29 @@ class CastController {
         return !!window.cast?.framework?.CastContext.getInstance().getCurrentSession();
     }
 
+    /** Why casting can't work in this browser, or null if it can. */
+    get unavailableReason() {
+        if (this.sdkReady) return null;
+        if (!window.isSecureContext) {
+            return `Casting only works when the app is opened on http://localhost:${location.port || 80} ` +
+                '(or over https). Chrome refuses to start the Cast SDK on a plain-http LAN address.';
+        }
+        if (!window.chrome) {
+            return 'Casting needs Google Chrome (or a Chromium browser with casting enabled). ' +
+                'Firefox and Safari have no Chromecast support.';
+        }
+        if (this.sdkFailure) return this.sdkFailure;
+        return 'The Google Cast SDK did not load - an ad/tracker blocker blocking www.gstatic.com, ' +
+            'or no internet connection, will do that.';
+    }
+
     async toggle() {
+        const reason = this.unavailableReason;
+        if (reason) {
+            console.warn('[Cast]', reason);
+            alert(reason);
+            return;
+        }
         if (this.isCasting) return this.stop();
 
         const player = window.app?.player;
@@ -172,11 +204,14 @@ class CastController {
 
 // The SDK calls this when it finishes loading; it only loads in Chrome, and only
 // in a secure context (https, or http://localhost).
+window.castController = new CastController();
 window.__onGCastApiAvailable = function (isAvailable) {
     if (!isAvailable) {
-        console.log('[Cast] Cast SDK unavailable - needs Chrome on https or http://localhost');
+        // Brave ships with its Media Router off; Chromium builds may lack it entirely.
+        window.castController.sdkFailure = 'This browser has casting turned off. In Brave, enable ' +
+            '"Media Router" under brave://settings/extensions and restart.';
+        console.log('[Cast]', window.castController.sdkFailure);
         return;
     }
-    window.castController = new CastController();
     window.castController.init();
 };
