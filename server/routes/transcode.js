@@ -40,7 +40,7 @@ router.post('/session', async (req, res) => {
     const userAgent = db.getUserAgent(settings);
 
     try {
-        const session = await transcodeSession.createSession(url, {
+        const session = await transcodeSession.getOrCreateSession(url, {
             ffmpegPath,
             userAgent,
             seekOffset: seekOffset || 0,
@@ -59,14 +59,22 @@ router.post('/session', async (req, res) => {
             videoHeight: videoHeight // source height from probe; used to cap max-resolution in JS
         });
 
-        await session.start();
+        // Only start and wait if not already running (getOrCreateSession may return existing)
+        if (session.status !== 'running') {
+            await session.start();
 
-        // Wait for playlist to be ready (first segments generated)
-        const ready = await session.waitForPlaylist(15000);
+            // Wait for playlist to be ready (first segments generated)
+            console.log(`[Transcode] Waiting for playlist (session ${session.id})...`);
+            const ready = await session.waitForPlaylist(20000);
 
-        if (!ready) {
-            await transcodeSession.removeSession(session.id);
-            return res.status(500).json({ error: 'Transcoding failed to start', reason: 'Playlist not generated in time' });
+            if (!ready) {
+                console.error(`[Transcode] Playlist timeout for session ${session.id} (status: ${session.status})`);
+                await transcodeSession.removeSession(session.id);
+                return res.status(500).json({ error: 'Transcoding failed to start', reason: 'Playlist not generated in time' });
+            }
+            console.log(`[Transcode] Playlist ready for session ${session.id}`);
+        } else {
+            console.log(`[Transcode] Reusing existing session ${session.id}`);
         }
 
         res.json({
