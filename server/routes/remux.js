@@ -14,7 +14,7 @@ const db = require('../db');
  * Note: This does NOT fix Dolby/AC3 audio issues - use /api/transcode for that.
  */
 router.get('/', async (req, res) => {
-    const { url } = req.query;
+    const { url, audioCodec } = req.query;
     if (!url) {
         return res.status(400).json({ error: 'URL parameter is required' });
     }
@@ -33,7 +33,6 @@ router.get('/', async (req, res) => {
     const args = [
         '-hide_banner',
         '-loglevel', 'warning',
-        '-user_agent', userAgent,
         '-user_agent', userAgent,
         // Standard probe size to handle complex containers (MKV) correctly
         '-probesize', '5000000',
@@ -63,9 +62,16 @@ router.get('/', async (req, res) => {
         '-c', 'copy',
         // Ensure extradata is correctly extracted/converted (fixes Annex B -> AVCC issues in Firefox)
         '-bsf:v', 'dump_extra',
-        // NOTE: We intentionally do NOT use -bsf:a aac_adtstoasc here
-        // That filter only works for AAC audio and breaks AC3/EAC3/MP3.
-        // If AAC audio from MPEG-TS fails in MP4, use /api/transcode instead.
+    ];
+
+    // aac_adtstoasc only works for AAC audio and breaks AC3/EAC3/MP3, so only
+    // apply it when the caller has told us the source audio is AAC (ADTS in
+    // MPEG-TS needs conversion to ASC/AudioSpecificConfig for MP4).
+    if (audioCodec && audioCodec.toLowerCase() === 'aac') {
+        args.push('-bsf:a', 'aac_adtstoasc');
+    }
+
+    args.push(
         // Handle timestamp discontinuities at output
         '-fps_mode', 'passthrough',
         '-max_muxing_queue_size', '1024',
@@ -73,7 +79,7 @@ router.get('/', async (req, res) => {
         '-f', 'mp4',
         '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
         '-' // Output to stdout
-    ];
+    );
 
     console.log(`[Remux] Full command: ${ffmpegPath} ${args.join(' ')}`);
 
