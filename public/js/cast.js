@@ -35,12 +35,7 @@ class CastController {
 
         const applyState = (state) => {
             this.available = state !== cast.framework.CastState.NO_DEVICES_AVAILABLE;
-            this.button?.classList.toggle('active', this.isCasting);
-            if (this.button) {
-                this.button.title = this.available
-                    ? 'Cast to a Chromecast'
-                    : 'No Chromecast found on this network yet';
-            }
+            this.setActive(this.isCasting);
         };
         context.addEventListener(
             cast.framework.CastContextEventType.CAST_STATE_CHANGED,
@@ -56,7 +51,7 @@ class CastController {
                 if (e.sessionState === cast.framework.SessionState.SESSION_ENDED) {
                     console.log('[Cast] Session ended');
                     this.releaseSession();
-                    this.button?.classList.remove('active');
+                    this.setActive(false);
                 }
             }
         );
@@ -154,7 +149,7 @@ class CastController {
         if (channel.tvgLogo) media.metadata.images = [new chrome.cast.Image(channel.tvgLogo)];
 
         await session.loadMedia(new chrome.cast.media.LoadRequest(media));
-        this.button?.classList.add('active');
+        this.setActive(true);
         window.app?.player?.updateNowPlaying?.(channel);
     }
 
@@ -219,7 +214,16 @@ class CastController {
     async stop() {
         cast.framework.CastContext.getInstance().endCurrentSession(true);
         await this.releaseSession();
-        this.button?.classList.remove('active');
+        this.setActive(false);
+    }
+
+    /** Casting state on the button: colour for sight, aria-pressed and the name for everyone else. */
+    setActive(casting) {
+        if (!this.button) return;
+        this.button.classList.toggle('active', casting);
+        this.button.setAttribute('aria-pressed', String(casting));
+        this.button.title = casting ? 'Stop casting'
+            : this.available ? 'Cast to a Chromecast' : 'No Chromecast found on this network yet';
     }
 
     /** Tear down the transcode session we started, so ffmpeg stops pulling the stream. */

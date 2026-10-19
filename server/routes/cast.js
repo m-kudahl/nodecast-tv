@@ -28,10 +28,18 @@ function lanAddresses(nets = os.networkInterfaces()) {
     return addresses;
 }
 
+// req.ip, so a local reverse proxy's X-Forwarded-For (trusted by default) is honoured.
+const isLoopback = ip => ip === '::1' || /^(::ffff:)?127\./.test(ip || '');
+
 /** Authenticated: mount under /api/cast. */
 function api(port) {
     const router = express.Router();
-    router.get('/host', (req, res) => res.json({ addresses: lanAddresses(), port }));
+    // Only a browser on this machine needs our LAN addresses (anyone else already
+    // reached us by a routable host), so don't describe the network to remote users.
+    router.get('/host', (req, res) => {
+        if (!isLoopback(req.ip)) return res.sendStatus(404);
+        res.json({ addresses: lanAddresses(), port });
+    });
     return router;
 }
 
@@ -57,4 +65,4 @@ function media(getSessionByCastToken) {
     return router;
 }
 
-module.exports = { api, media, lanAddresses };
+module.exports = { api, media, lanAddresses, isLoopback };

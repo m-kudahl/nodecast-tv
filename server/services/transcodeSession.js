@@ -226,10 +226,11 @@ class TranscodeSession extends EventEmitter {
             '-reconnect', '1',
             '-reconnect_streamed', '1',
             '-reconnect_on_http_error', '4xx,5xx',
-            '-reconnect_delay_max', '10',
-            // Prevent Range/HEAD requests that some providers reject
-            '-seekable', '0'
+            '-reconnect_delay_max', '10'
         );
+        // Live: stop Range/HEAD requests some providers reject. Never for VOD - an MP4
+        // with its moov atom at the end has to be read by seeking back to the samples.
+        if (this.options.isLive) args.push('-seekable', '0');
 
         args.push('-i', this.url);
 

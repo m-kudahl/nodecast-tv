@@ -3,6 +3,8 @@
  * Cable TV-style program guide grid
  */
 
+const FULL_GUIDE_MAX_AGE_MS = 60 * 60 * 1000;
+
 class EpgGuide {
     constructor() {
         this.container = document.getElementById('epg-grid');
@@ -164,6 +166,13 @@ class EpgGuide {
 
             try {
                 await this.fetchNowPlaying();
+                // The full guide is only fetched on Guide visits, so re-fetch it hourly
+                // once loaded - otherwise it never sees a server sync and runs out of
+                // programmes a day after it was opened.
+                if (this.fullEpgLoaded && Date.now() - (this.lastRefreshTime || 0) > FULL_GUIDE_MAX_AGE_MS) {
+                    await this.fetchEpgData();
+                    this.lastRefreshTime = new Date();
+                }
 
                 // Update channel list program info if visible
                 if (window.app?.channelList) {
@@ -360,9 +369,11 @@ class EpgGuide {
                 const stop = new Date(p.stop).getTime();
                 return nowTime >= start && nowTime < stop;
             }) || null;
-        } else {
-            // Sidebar-only data: already exactly one currently-airing row per channel,
-            // but it can go stale between refreshes, so still bounds-check it.
+        }
+        if (!current) {
+            // Sidebar data (also the fallback when the full guide has no row for now):
+            // one currently-airing row per channel, refreshed every few minutes, but it
+            // can still go stale between refreshes, so bounds-check it.
             const p = this.nowByChannel.get(epgChannel.id);
             if (p && nowTime >= new Date(p.start).getTime() && nowTime < new Date(p.stop).getTime()) {
                 current = p;

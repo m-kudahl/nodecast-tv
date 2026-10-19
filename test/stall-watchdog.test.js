@@ -67,3 +67,12 @@ test('fatal() reloads, defers while hidden, and gives up after 3 straight failur
     wd.tick();
     assert.strictEqual(wd.fatalCount, 0);
 });
+
+test('a stream the user starts gets a fresh fatal-retry budget', t => {
+    const { calls, wd } = fixture(t);
+    for (let i = 0; i < 3; i++) wd.fatal();
+    assert.strictEqual(wd.fatal(), false); // previous channel gave up
+    wd.newStream();
+    assert.strictEqual(wd.fatal(), true);
+    assert.strictEqual(calls.filter(c => c === 'reload').length, 4);
+});

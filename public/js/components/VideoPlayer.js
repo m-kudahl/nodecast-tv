@@ -697,6 +697,7 @@ class VideoPlayer {
             return window.castController.castChannel(channel, streamUrl);
         }
         this.currentStreamUrl = streamUrl; // for watchdog reloads
+        if (!this.recovering) this.watchdog?.newStream();
 
         try {
             // Stop any WatchPage playback (movies/series) before starting Live TV

@@ -43,3 +43,8 @@ test('hardware encoders are verified by a test encode, not inferred from a devic
     assert.equal(await verifyEncoder('vaapi', '/dev/dri/renderD999'), false);
     assert.equal(await verifyEncoder('software'), true);
 });
+
+test('only live input disables seeking; VOD must seek to reach a trailing moov atom', () => {
+    assert.equal(flag(argsFor({ isLive: true }), '-seekable'), '0');
+    assert.ok(!argsFor({ isLive: false }).includes('-seekable'));
+});

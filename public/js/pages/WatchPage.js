@@ -267,6 +267,7 @@ class WatchPage {
      */
     async play(content, streamUrl) {
         this.stop();
+        this.watchdog?.newStream(); // reloadCurrentVideo() goes through loadVideo(), not here
         this.sourceDuration = 0;
         this.content = content;
         this.contentType = content.type;
@@ -704,7 +705,8 @@ class WatchPage {
     async reloadCurrentVideo() {
         if (this.recovering || !this.content || !this.currentUrl) return;
         const url = this.currentUrl;
-        const at = this.video?.currentTime || 0;
+        // Content time, not video.currentTime: a server session's clock starts at its seek offset.
+        const at = this.getCurrentPlaybackTime();
         this.recovering = true;
         try {
             // loadVideo() applies resumeTime on loadedmetadata (and as the transcode

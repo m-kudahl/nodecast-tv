@@ -86,3 +86,16 @@ test('LAN addresses skip loopback, IPv6 and interfaces a Chromecast cannot reach
     });
     assert.deepEqual(addresses, [{ name: 'eth0', address: '192.168.1.20' }]);
 });
+
+test('LAN addresses are only described to a browser on this machine', async t => {
+    for (const ip of ['127.0.0.1', '::1', '::ffff:127.0.0.1']) assert.ok(cast.isLoopback(ip), ip);
+    for (const ip of ['192.168.1.5', '::ffff:10.0.0.2', '1270.0.0.1', '', undefined]) assert.ok(!cast.isLoopback(ip), String(ip));
+
+    const app = express();
+    app.use('/api/cast', cast.api(3000));
+    const server = await new Promise(resolve => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
+    t.after(() => new Promise(resolve => server.close(resolve)));
+    const body = await (await fetch(`http://127.0.0.1:${server.address().port}/api/cast/host`)).json();
+    assert.equal(body.port, 3000);
+    assert.ok(Array.isArray(body.addresses));
+});

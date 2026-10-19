@@ -27,6 +27,12 @@ class StallWatchdog {
      * times out on purpose. Returns false after 3 straight failures so the caller can
      * show an error rather than retry a dead stream forever.
      */
+    /** A stream the user chose (not a recovery reload) starts with a fresh retry budget. */
+    newStream() {
+        this.fatalCount = 0;
+        this.reloadOnVisible = false;
+    }
+
     fatal() {
         if (this.fatalCount >= 3) return false;
         this.fatalCount++;
