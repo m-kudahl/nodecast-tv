@@ -66,6 +66,8 @@ nodecast-tv is a modern, web-based IPTV player featuring Live TV, EPG, Movies (V
 
 You can run nodecast-tv easily using Docker.
 
+Container images are published to `ghcr.io/technomancer702/nodecast-tv` when a GitHub release is published. Use a version tag such as `v2.2.1` for the release: stable releases publish image tags `2.2.1`, `2.2`, and `latest`; prereleases publish their full version tag without updating `latest` or the minor-version alias. Branch pushes, tag pushes alone, and draft releases do not publish images.
+
 1.  Create a `docker-compose.yml` file (or copy the one from this repo):
 
     ```yaml
@@ -118,6 +120,8 @@ Ensure you have the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacente
 ```
 
 **Verify:**
+On Linux, QSV detection checks an accessible Intel render device and verifies a short H.264 encode with the configured FFmpeg. If that check fails, QSV is not automatically recommended. Ensure the container has read/write permission on the mapped device. The amd64 image includes the Intel Media SDK and VPL GPU runtimes for older and newer Intel GPUs. It also includes `pciutils` for systems where GPU vendor information is hidden in sysfs.
+
 After restarting the container, go to **Settings -> Transcoding**. The **Hardware Detection** status should list your GPU (e.g., "NVIDIA GPU Detected" or "VAAPI Available").
 
 ### SSO / OIDC Setup
@@ -130,6 +134,10 @@ OIDC_CLIENT_ID=your_client_id
 OIDC_CLIENT_SECRET=your_client_secret
 OIDC_CALLBACK_URL=http://localhost:3000/api/auth/oidc/callback # Adjust for your domain
 ```
+
+The app loads the provider's `/.well-known/openid-configuration` document at startup, using its published authorization, token and optional userinfo endpoints. Copy the provider's issuer URL exactly, including its trailing slash if present; the returned issuer must match. See the [OpenID Connect discovery specification](https://openid.net/specs/openid-connect-discovery-1_0.html#ProviderConfig).
+
+`OIDC_AUTH_URL`, `OIDC_TOKEN_URL` and `OIDC_USERINFO_URL` can override individual endpoints. Supplying all three skips discovery. HTTPS issuers require HTTPS endpoints; HTTP is retained for local development configurations. Discovery has a five-second timeout and a 128 KiB response limit. If it fails, SSO returns an unavailable message and local login remains usable; correct the provider configuration and restart the app.
 
 **Note:** New users signing in via SSO are automatically assigned the **Viewer** role. You must manually promote them to Admin if desired.
 
@@ -209,6 +217,12 @@ All transcoding and stream processing settings are found in **Settings → Trans
 | **Force Backend Proxy** | Routes streams through the server for CORS headers | When streams fail with CORS errors, or using middleware |
 
 
+## Enigma2 / OpenWebif sources
+
+Add the receiver's bouquet export URL (for example, `http://receiver/web/services.m3u?bRef=...`) as an M3U source. Program tags select the matching video/audio service during probing, remux and transcoding. Tagged raw streams are remuxed even when Force Remux is off.
+
+For a single-tuner receiver, enable **Zap before streaming (Enigma2/OpenWebif)** on that source. The player releases its previous stream, tunes the configured receiver, and waits for the source's zap delay before starting playback. The default delay is 1500 ms; values from 0 to 10000 ms are supported. Stop and changing channels cancel pending playback startup. Live TV continues playing when you minimize the player and browse the guide or other pages. The receiver address comes from the administrator-managed source URL, and only imported channels can be tuned.
+
 ## Troubleshooting
 
 ### Video Won't Play (Black Screen or Loading Forever)
@@ -225,6 +239,10 @@ All transcoding and stream processing settings are found in **Settings → Trans
 |---------|--------------|----------|
 | No audio at all | Dolby/AC3/EAC3 audio | Enable **"Force Audio Transcode"** (overrides Auto detection) |
 | Audio out of sync | Stream encoding issue | Try changing stream format to TS in Settings |
+
+### Low-Pitched Audio During Commercials
+
+On Chromium browsers (including Chrome, Brave, and Edge), the player refreshes the media decoder when playback crosses an HLS discontinuity, which is commonly used at ad transitions. This keeps the current playback position and subtitle selection, but may briefly rebuffer. Streams without discontinuity markers cannot use this workaround. If distortion persists, try Firefox or enable **Force Audio Transcode** in Settings.
 
 ### Buffering Issues
 
@@ -331,6 +349,18 @@ nodecast-tv/
 │   └── index.js         # Server Entry Point
 └── data/                # Persistent storage (content.db, playlists)
 ```
+
+## Authentication and reverse proxies
+
+Usernames are matched without regard to case, and their display spelling is preserved. If an older database has accounts differing only by case, those accounts still require their exact spelling until an administrator renames them; ambiguous mixed-case logins are rejected. New accounts and renames cannot create case-only duplicates.
+
+Browser playback and API requests use an HttpOnly authentication cookie. API clients can also send the token returned by `/api/auth/login` as `Authorization: Bearer <token>`. Existing accounts and settings are retained, but clients must sign in again after upgrading from the older token format. Logout revokes that login; changing a password invalidates all of that account's existing tokens.
+
+Random authentication secrets are created once in `data/security.json` and survive restarts. Keep that file with the persistent data volume. `JWT_SECRET` and `SESSION_SECRET` can override the generated secrets for managed deployments.
+
+For reverse proxies, set `APP_ORIGIN` to the external origin (for example `https://tv.example.com`) and `TRUST_PROXY` to the proxy's IP address or CIDR when it is outside the default loopback/private networks. HTTPS requests receive Secure cookies; `AUTH_COOKIE_SECURE=true` enforces this when TLS is terminated upstream.
+
+HTTP(S) media inputs reject control characters, local-file protocols, loopback and link-local/metadata addresses. Local IPTV services on ordinary LAN addresses remain supported. Set `ALLOW_LOCAL_MEDIA_URLS=true` when a provider deliberately runs on localhost; metadata addresses remain blocked. This URL validation complements deployment network restrictions; it does not resolve or pin every destination through nested FFmpeg requests.
 
 ## License
 

@@ -10,7 +10,7 @@
   <title>nodecast-tv | IPTV Player</title>
   <meta name="description" content="Stream live TV, movies, and series with EPG support">
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-  <link rel="stylesheet" href="css/main.css">
+  <link rel="stylesheet" href="css/main.css?v=2.2.7">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@800&display=swap"
@@ -197,6 +197,12 @@
                       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"
                         class="icon icon-pause hidden">
                         <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z" />
+                      </svg>
+                    </button>
+
+                    <button class="watch-btn" id="btn-stop" title="Stop">
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="icon">
+                        <path d="M6 6h12v12H6z" />
                       </svg>
                     </button>
 
@@ -1102,37 +1108,30 @@
 
   <!-- JavaScript -->
   <script src="/js/icons.js"></script>
-  <script src="/js/api.js?v=2"></script>
+  <script src="/js/api.js?v=auth-2"></script>
   <script src="/js/stallWatchdog.js?v=1"></script>
   <script src="/js/cast.js?v=3"></script>
   <!-- Must come after cast.js: the SDK calls window.__onGCastApiAvailable on load -->
   <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
-  <script src="/js/components/VideoPlayer.js?v=4"></script>
-  <script src="/js/components/ChannelList.js?v=3"></script>
-  <script src="/js/components/SourceManager.js?v=2"></script>
+  <script src="/js/components/PlaybackSessions.js?v=1"></script>
+  <script src="/js/components/VodDuration.js?v=1"></script>
+  <script src="/js/components/CaptionTracks.js?v=4"></script>
+  <script src="/js/components/HlsAudioRecovery.js?v=1"></script>
+  <script src="/js/components/PlaybackProbe.js?v=2"></script>
+  <script src="/js/components/PlayerFullscreen.js?v=1"></script>
+  <script src="/js/components/VideoPlayer.js?v=9"></script>
+  <script src="/js/components/ChannelList.js?v=5"></script>
+  <script src="/js/components/SourceManager.js?v=3"></script>
   <script src="/js/components/EpgGuide.js?v=2"></script>
   <script src="/js/pages/HomePage.js?v=2"></script>
-  <script src="/js/pages/LivePage.js?v=2"></script>
+  <script src="/js/pages/LivePage.js?v=3"></script>
   <script src="/js/pages/Guide.js?v=2"></script>
   <script src="/js/pages/MoviesPage.js?v=4"></script>
   <script src="/js/pages/SeriesPage.js?v=1"></script>
   <script src="/js/pages/Settings.js?v=2"></script>
-  <script src="/js/pages/WatchPage.js?v=2"></script>
-  <script src="/js/app.js?v=4"></script>
-  <script>
-    // Check for SSO token in URL
-    (function () {
-      const urlParams = new URLSearchParams(window.location.search);
-      const token = urlParams.get('token');
-      if (token) {
-        console.log('SSO Login successful, saving token...');
-        localStorage.setItem('authToken', token);
-        // Clean URL without reloading
-        const newUrl = window.location.pathname;
-        window.history.replaceState({}, document.title, newUrl);
-      }
-    })();
-  </script>
+  <script src="/js/pages/WatchPage.js?v=11"></script>
+  <script src="/js/app.js?v=5"></script>
+
 </body>
 
 </html>

@@ -3366,8 +3366,8 @@ kbd {
   height: calc(100vh - var(--navbar-height));
   /* fallback */
   height: calc(100dvh - var(--navbar-height));
-  /* dynamic viewport for modern browsers */
-  min-height: 400px;
+  /* Keep controls inside short landscape viewports too. */
+  min-height: 0;
   background: #000;
 }
 

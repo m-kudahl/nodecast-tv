@@ -28,7 +28,7 @@ class App {
 
     async init() {
         // Check authentication first
-        await this.checkAuth();
+        if (!await this.checkAuth()) return;
 
         // Mobile menu toggle
         const mobileMenuToggle = document.getElementById('mobile-menu-toggle');
@@ -174,19 +174,14 @@ class App {
     async checkAuth() {
         const token = localStorage.getItem('authToken');
 
-        if (!token) {
-            // No token, redirect to login (replace to avoid back button issues)
-            window.location.replace('/login.html');
-            return;
-        }
-
         try {
-            // Verify token with server
-            const response = await fetch('/api/auth/me', {
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
-            });
+            if (token) {
+                const migrated = await fetch('/api/auth/session', { method: 'POST',
+                    headers: { Authorization: `Bearer ${token}` } });
+                localStorage.removeItem('authToken');
+                if (!migrated.ok) throw new Error('Please sign in again');
+            }
+            const response = await fetch('/api/auth/me', { credentials: 'same-origin' });
 
             if (!response.ok) {
                 throw new Error('Invalid token');
@@ -204,11 +199,13 @@ class App {
 
             // Add logout button to navbar
             this.addLogoutButton();
+            return true;
 
         } catch (err) {
             console.error('Authentication error:', err);
             localStorage.removeItem('authToken');
             window.location.replace('/login.html');
+            return false;
         }
     }
 
@@ -230,15 +227,9 @@ class App {
         logoutLink.addEventListener('click', async (e) => {
             e.preventDefault();
 
-            const token = localStorage.getItem('authToken');
-            if (token) {
-                await fetch('/api/auth/logout', {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${token}`
-                    }
-                });
-            }
+            this.player.stop();
+            this.pages.watch.stop();
+            await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' });
 
             localStorage.removeItem('authToken');
             window.location.replace('/login.html');

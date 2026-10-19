@@ -9,7 +9,8 @@
  * Results are cached at startup and exposed via API.
  */
 
-const { execSync, exec, spawn } = require('child_process');
+const { execSync, execFile, spawn } = require('child_process');
+const fs = require('fs');
 const os = require('os');
 
 // Cache detection results
@@ -164,46 +165,51 @@ async function detectVAAPI() {
  * Detect Intel QuickSync support
  * Checks if FFmpeg can use QSV
  */
-async function detectQuickSync() {
+async function detectQuickSync(ffmpegPath = 'ffmpeg') {
     try {
-        // Check if Intel GPU exists
-        let hasIntelGpu = false;
-
         if (os.platform() === 'win32') {
-            // Windows: Check via WMIC
-            const result = execSync(
-                'wmic path win32_VideoController get name',
-                { timeout: 5000, encoding: 'utf-8', windowsHide: true }
-            );
-            hasIntelGpu = result.toLowerCase().includes('intel');
-        } else if (os.platform() === 'linux') {
-            // Linux: Check lspci
+            const result = execSync('wmic path win32_VideoController get name',
+                { timeout: 5000, encoding: 'utf-8', windowsHide: true });
+            return result.toLowerCase().includes('intel')
+                ? { available: true, encoder: 'h264_qsv', decoder: 'h264_qsv' }
+                : { available: false, reason: 'No Intel GPU found' };
+        }
+        if (os.platform() !== 'linux') return { available: false, reason: 'Unsupported QSV platform' };
+
+        const nodes = fs.readdirSync('/dev/dri').filter(name => /^renderD\d+$/.test(name));
+        const intel = [], unknown = [];
+        for (const name of nodes) {
+            const device = '/dev/dri/' + name;
+            try { fs.accessSync(device, fs.constants.R_OK | fs.constants.W_OK); } catch { continue; }
             try {
-                const result = execSync('lspci | grep -i "vga\\|display" | grep -i intel', {
-                    timeout: 5000,
-                    encoding: 'utf-8',
-                    shell: true
-                });
-                hasIntelGpu = result.trim().length > 0;
-            } catch {
-                hasIntelGpu = false;
+                const vendor = fs.readFileSync('/sys/class/drm/' + name + '/device/vendor', 'utf8').trim().toLowerCase();
+                if (vendor === '0x8086') intel.push(device);
+            } catch { unknown.push(device); }
+        }
+        // Some containers hide sysfs. Only use the PCI fallback for a single unclassified mapped device.
+        if (!intel.length && nodes.length === 1 && unknown.length === 1) {
+            try {
+                const pci = execSync('lspci', { timeout: 2000, encoding: 'utf8', windowsHide: true });
+                if (pci.split('\n').some(line => /VGA|display|3D/i.test(line) && /intel/i.test(line))) intel.push(unknown[0]);
+            } catch { /* No PCI utility or Intel adapter visible. */ }
+        }
+        for (const device of intel) {
+            const usable = await new Promise(resolve => {
+                execFile(ffmpegPath, ['-hide_banner', '-loglevel', 'error',
+                    '-init_hw_device', 'qsv=probe:hw,child_device=' + device + ',child_device_type=vaapi',
+                    '-filter_hw_device', 'probe', '-f', 'lavfi', '-i', 'color=s=64x64:r=1',
+                    '-vf', 'format=nv12,hwupload=extra_hw_frames=16', '-c:v', 'h264_qsv',
+                    '-frames:v', '1', '-f', 'null', '-'],
+                { timeout: 5000, killSignal: 'SIGKILL', windowsHide: true, maxBuffer: 256 * 1024 }, error => resolve(!error));
+            });
+            if (usable) {
+                console.log('[HwDetect] QuickSync encode verified on ' + device);
+                return { available: true, device, encoder: 'h264_qsv', decoder: 'h264_qsv' };
             }
         }
-
-        if (!hasIntelGpu) {
-            return { available: false, reason: 'No Intel GPU found' };
-        }
-
-        console.log('[HwDetect] Intel GPU detected, QSV may be available');
-
-        return {
-            available: true,
-            encoder: 'h264_qsv',
-            decoder: 'h264_qsv'
-        };
-    } catch (err) {
-        console.log('[HwDetect] QuickSync not available');
-        return { available: false };
+        return { available: false, reason: intel.length ? 'QSV encode test failed' : 'No accessible Intel render device found' };
+    } catch {
+        return { available: false, reason: 'QuickSync not available' };
     }
 }
 
@@ -260,7 +266,7 @@ async function detectAMF() {
  * Detect all hardware capabilities
  * Results are cached for performance
  */
-async function detect() {
+async function detect(ffmpegPath) {
     if (hwCapabilities !== null) {
         return hwCapabilities;
     }
@@ -270,7 +276,7 @@ async function detect() {
     const [nvidia, vaapi, qsv, amf] = await Promise.all([
         detectNvidia(),
         detectVAAPI(),
-        detectQuickSync(),
+        detectQuickSync(ffmpegPath),
         detectAMF()
     ]);
 
@@ -286,7 +292,8 @@ async function detect() {
     let recommended = 'software';
     for (const [name, present, device] of candidates) {
         if (!present) continue;
-        if (await verifyEncoder(name, device)) {
+        // detectQuickSync already ran a device-bound test encode on Linux
+        if ((name === 'qsv' && qsv.device) || await verifyEncoder(name, device, ffmpegPath)) {
             recommended = name;
             break;
         }
@@ -318,9 +325,9 @@ function getCapabilities() {
 /**
  * Force re-detection (clears cache)
  */
-async function refresh() {
+async function refresh(ffmpegPath) {
     hwCapabilities = null;
-    return detect();
+    return detect(ffmpegPath);
 }
 
 module.exports = {

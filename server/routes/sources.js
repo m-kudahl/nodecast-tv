@@ -1,5 +1,9 @@
 const express = require('express');
 const router = express.Router();
+const zapDelayValue = value => {
+    const delay = Number(value ?? 1500);
+    return Number.isFinite(delay) ? Math.max(0, Math.min(10000, Math.trunc(delay))) : 1500;
+};
 const { sources } = require('../db');
 const { getDb } = require('../db/sqlite');
 const xtreamApi = require('../services/xtreamApi');
@@ -63,7 +67,7 @@ router.get('/:id', async (req, res) => {
 // Create source
 router.post('/', async (req, res) => {
     try {
-        const { type, name, url, username, password } = req.body;
+        const { type, name, url, username, password, zapBeforeStreaming, zapDelay } = req.body;
 
         if (!type || !name || !url) {
             return res.status(400).json({ error: 'Type, name, and URL are required' });
@@ -73,7 +77,7 @@ router.post('/', async (req, res) => {
             return res.status(400).json({ error: 'Invalid source type' });
         }
 
-        const source = await sources.create({ type, name, url, username, password });
+        const source = await sources.create({ type, name, url, username, password, zapBeforeStreaming: zapBeforeStreaming === true, zapDelay: zapDelayValue(zapDelay) });
         // Trigger Sync
         syncService.syncSource(source.id).catch(console.error);
         res.status(201).json(source);
@@ -91,13 +95,18 @@ router.put('/:id', async (req, res) => {
             return res.status(404).json({ error: 'Source not found' });
         }
 
-        const { name, url, username, password } = req.body;
-        const updated = await sources.update(req.params.id, {
-            name: name || existing.name,
-            url: url || existing.url,
-            username: username !== undefined ? username : existing.username,
-            password: password !== undefined ? password : existing.password
-        });
+        const { name, url, username, password, zapBeforeStreaming, zapDelay } = req.body;
+        // Omitted fields must be merged against the latest record inside the
+        // database transaction, not the snapshot read before another edit.
+        const updates = {};
+        if (name) updates.name = name;
+        if (url) updates.url = url;
+        if (username !== undefined) updates.username = username;
+        if (password !== undefined) updates.password = password;
+        if (zapBeforeStreaming !== undefined) updates.zapBeforeStreaming = zapBeforeStreaming === true;
+        if (zapDelay !== undefined) updates.zapDelay = zapDelayValue(zapDelay);
+        const updated = await sources.update(req.params.id, updates);
+        if (!updated) return res.status(404).json({ error: 'Source not found' });
         // Trigger Sync (if critical fields changed? safely just trigger it)
         syncService.syncSource(parseInt(req.params.id)).catch(console.error);
         res.json(updated);
@@ -117,6 +126,7 @@ router.delete('/:id', async (req, res) => {
         }
 
         // Cascade delete: Clean up SQLite data for this source
+        syncService.invalidateEpgSource(sourceId);
         const db = getDb();
         const deleteCategories = db.prepare('DELETE FROM categories WHERE source_id = ?');
         const deleteItems = db.prepare('DELETE FROM playlist_items WHERE source_id = ?');

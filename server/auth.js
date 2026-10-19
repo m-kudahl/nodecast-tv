@@ -1,8 +1,12 @@
+const { discoverOidcEndpoints } = require('./services/oidcDiscovery');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const passport = require('passport');
 const { Strategy: JwtStrategy, ExtractJwt } = require('passport-jwt');
 const { Strategy: LocalStrategy } = require('passport-local');
+const security = require('./config/security');
+const authTokens = require('./services/authTokens');
+const crypto = require('node:crypto');
 
 /**
  * Authentication and Authorization Module
@@ -10,8 +14,8 @@ const { Strategy: LocalStrategy } = require('passport-local');
  * Using Passport.js with JWT tokens
  */
 
-// JWT_SECRET if set, otherwise a per-install key generated on first run.
-const JWT_SECRET = require('./secret');
+// JWT Secret - In production, use environment variable
+const JWT_SECRET = security.jwtSecret;
 const JWT_EXPIRY = '24h';
 
 /**
@@ -26,6 +30,7 @@ async function hashPassword(password) {
  * Verify password against hash
  */
 async function verifyPassword(password, hash) {
+    if (typeof password !== 'string' || typeof hash !== 'string') return false;
     return bcrypt.compare(password, hash);
 }
 
@@ -37,10 +42,12 @@ function generateToken(user) {
         {
             id: user.id,
             username: user.username,
-            role: user.role
+            role: user.role,
+            authVersion: user.authVersion || 0,
+            kind: 'access'
         },
         JWT_SECRET,
-        { expiresIn: JWT_EXPIRY }
+        { expiresIn: JWT_EXPIRY, algorithm: 'HS256', audience: 'nodecast-tv', jwtid: crypto.randomUUID() }
     );
 }
 
@@ -49,7 +56,8 @@ function generateToken(user) {
  */
 function verifyToken(token) {
     try {
-        return jwt.verify(token, JWT_SECRET);
+        const payload = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'], audience: 'nodecast-tv' });
+        return payload.kind === 'access' && typeof payload.jti === 'string' ? payload : null;
     } catch (err) {
         return null;
     }
@@ -87,15 +95,18 @@ function configureLocalStrategy(getUserByUsername, verifyUserPassword) {
  */
 function configureJwtStrategy(getUserById) {
     const options = {
-        jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
-        secretOrKey: JWT_SECRET
+        jwtFromRequest: extractToken,
+        secretOrKey: JWT_SECRET,
+        algorithms: ['HS256'],
+        audience: 'nodecast-tv'
     };
 
     passport.use(new JwtStrategy(options, async (payload, done) => {
         try {
             const user = await getUserById(payload.id);
 
-            if (!user) {
+            if (!user || payload.kind !== 'access' || typeof payload.jti !== 'string'
+                || (payload.authVersion || 0) !== (user.authVersion || 0) || authTokens.isRevoked(payload)) {
                 return done(null, false);
             }
 
@@ -132,21 +143,19 @@ function configureSessionSerialization(getUserById) {
 /**
  * Configure Passport OpenID Connect Strategy
  */
-function configureOidcStrategy(findUserByOidcId, findUserByEmail, createUser) {
+async function configureOidcStrategy(findUserByOidcId, findUserByEmail, createUser) {
     if (!process.env.OIDC_ISSUER_URL || !process.env.OIDC_CLIENT_ID || !process.env.OIDC_CLIENT_SECRET) {
         console.warn('OIDC configuration missing - SSO disabled');
-        return;
+        return false;
     }
 
     const { Strategy: OpenIDConnectStrategy } = require('passport-openidconnect');
 
+    const endpoints = await discoverOidcEndpoints(process.env);
     passport.use(new OpenIDConnectStrategy({
-        issuer: process.env.OIDC_ISSUER_URL || 'https://mock-issuer.com', // Dummy default for mock
-        authorizationURL: process.env.OIDC_AUTH_URL || `${process.env.OIDC_ISSUER_URL}/protocol/openid-connect/auth`,
-        tokenURL: process.env.OIDC_TOKEN_URL || `${process.env.OIDC_ISSUER_URL}/protocol/openid-connect/token`,
-        userInfoURL: process.env.OIDC_USERINFO_URL || `${process.env.OIDC_ISSUER_URL}/protocol/openid-connect/userinfo`,
-        clientID: process.env.OIDC_CLIENT_ID || 'mock-client-id',
-        clientSecret: process.env.OIDC_CLIENT_SECRET || 'mock-secret',
+        ...endpoints,
+        clientID: process.env.OIDC_CLIENT_ID,
+        clientSecret: process.env.OIDC_CLIENT_SECRET,
         callbackURL: process.env.OIDC_CALLBACK_URL || '/api/auth/oidc/callback',
         scope: ['openid', 'profile', 'email']
     },
@@ -195,7 +204,7 @@ function configureOidcStrategy(findUserByOidcId, findUserByEmail, createUser) {
                 // Extract email - handle both profile.emails[] (Google) and profile.email (others)
                 const email = profile.emails?.[0]?.value || profile.email || profile._json?.email;
 
-                if (!user && email) {
+                if (!user && email && profile?._json?.email_verified === true) {
                     user = await findUserByEmail(email);
 
                     // If found by email but no OIDC ID, link them
@@ -223,12 +232,56 @@ function configureOidcStrategy(findUserByOidcId, findUserByEmail, createUser) {
                 return done(err);
             }
         }));
+    return true;
 }
 
 /**
  * Middleware: Require authentication using Passport JWT
  */
-const requireAuth = passport.authenticate('jwt', { session: false });
+function requireAuth(req, res, next) {
+    if (req.authenticatedUser) { req.user = req.authenticatedUser; return next(); }
+    passport.authenticate('jwt', { session: false }, (error, user) => {
+        if (error) return next(error);
+        if (!user) return res.status(401).json({ error: 'Authentication required' });
+        req.user = req.authenticatedUser = user;
+        next();
+    })(req, res, next);
+}
+
+function extractToken(req) {
+    const bearer = ExtractJwt.fromAuthHeaderAsBearerToken()(req);
+    if (bearer) return bearer;
+    for (const part of (req.headers.cookie || '').split(';')) {
+        const separator = part.indexOf('=');
+        if (part.slice(0, separator).trim() === security.authCookieName) {
+            try { return decodeURIComponent(part.slice(separator + 1)); } catch { return null; }
+        }
+    }
+    return null;
+}
+
+function cookieOptions(req) {
+    return { httpOnly: true, sameSite: 'lax', secure: process.env.AUTH_COOKIE_SECURE === 'true'
+        || (process.env.AUTH_COOKIE_SECURE !== 'false' && Boolean(req.secure)), path: '/' };
+}
+function setAuthCookie(req, res, token) {
+    res.cookie(security.authCookieName, token, { ...cookieOptions(req), maxAge: 24 * 60 * 60 * 1000 });
+}
+function clearAuthCookie(req, res) {
+    res.clearCookie(security.authCookieName, cookieOptions(req));
+}
+function requireSameOrigin(req, res, next) {
+    if (req.path.startsWith('/auth/oidc/')) return next();
+    if (req.get('sec-fetch-site') === 'cross-site') return res.status(403).json({ error: 'Cross-site request blocked' });
+    const origin = req.get('origin') || (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) ? req.get('referer') : null);
+    if (!origin) return next(); // Non-browser API clients still require authentication.
+    try {
+        const allowed = process.env.APP_ORIGIN ? new URL(process.env.APP_ORIGIN).origin
+            : new URL(`${req.protocol}://${req.get('host')}`).origin;
+        if (new URL(origin).origin === allowed) return next();
+    } catch { /* Invalid origins are rejected. */ }
+    res.status(403).json({ error: 'Cross-site request blocked' });
+}
 
 /**
  * Middleware: Require admin role
@@ -263,6 +316,10 @@ module.exports = {
     configureSessionSerialization,
     configureOidcStrategy,
     requireAuth,
+    extractToken,
+    setAuthCookie,
+    clearAuthCookie,
+    requireSameOrigin,
     requireAdmin,
     requireRole
 };

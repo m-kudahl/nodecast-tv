@@ -165,9 +165,9 @@ class CastController {
         });
         if (!res.ok) throw new Error('Could not start a transcode session for casting');
 
-        const { sessionId, playlistUrl } = await res.json();
+        const { sessionId, castUrl } = await res.json();
         this.sessionId = sessionId;
-        return (await this.castableOrigin()) + playlistUrl;
+        return (await this.castableOrigin()) + castUrl;
     }
 
     /**

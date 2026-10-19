@@ -19,13 +19,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gnupg \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && if [ "$TARGETARCH" = "amd64" ]; then \
-        DRIVERS="mesa-va-drivers intel-media-va-driver vainfo"; \
+        DRIVERS="mesa-va-drivers intel-media-va-driver vainfo libmfx1 libmfx-gen1.2"; \
     else \
         DRIVERS=""; \
     fi \
     && apt-get update && apt-get install -y --no-install-recommends \
     nodejs \
     ffmpeg \
+    pciutils \
     python3 \
     make \
     g++ \
@@ -51,6 +52,9 @@ RUN mkdir -p /app/data /app/transcode-cache && chmod 777 /app/transcode-cache
 
 # Expose port
 EXPOSE 3000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+    CMD ["node", "scripts/healthcheck.cjs"]
 
 # Start server
 CMD ["node", "server/index.js"]

@@ -180,10 +180,10 @@
                 Welcome! Please create your admin account to get started.
             </div>
 
-            <form id="login-form" method="post" action="/login.html">
+            <form id="login-form" method="post" action="/api/auth/login">
                 <div class="form-group">
                     <label for="username">Username</label>
-                    <input type="text" id="username" name="username" required autocomplete="username"
+                    <input type="text" id="username" name="username" required autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false"
                         placeholder="Enter your username">
                 </div>
 
@@ -193,8 +193,9 @@
                         minlength="6" placeholder="Enter your password">
                 </div>
 
-                <button type="submit" class="btn-login" id="submit-btn">Sign In</button>
+                <button type="submit" class="btn-login" id="submit-btn" disabled>Sign In</button>
             </form>
+            <noscript><p class="hint">JavaScript is required to sign in.</p></noscript>
 
             <div class="sso-divider" style="text-align: center; margin: 20px 0; position: relative;">
                 <span
@@ -248,7 +249,9 @@
         async function checkSetupRequired() {
             try {
                 const response = await fetch('/api/auth/setup-required');
+                if (!response.ok) throw new Error('Sign-in status unavailable');
                 const data = await response.json();
+                if (typeof data.setupRequired !== 'boolean') throw new Error('Invalid sign-in status');
 
                 if (data.setupRequired) {
                     isSetupMode = true;
@@ -260,8 +263,12 @@
                     document.querySelector('.sso-divider').style.display = 'none';
                     document.getElementById('btn-sso-login').style.display = 'none';
                 }
+                document.getElementById('submit-btn').disabled = false;
             } catch (err) {
                 console.error('Error checking setup status:', err);
+                const message = document.getElementById('error-message');
+                message.textContent = 'Could not load sign-in status. Reload the page to try again.';
+                message.classList.add('show');
             }
         }
 
@@ -299,7 +306,7 @@
                 }
 
                 // Store token
-                localStorage.setItem('authToken', data.token);
+                localStorage.removeItem('authToken');
 
                 // Redirect to main app (replace history to prevent back button issues)
                 window.location.replace('/');

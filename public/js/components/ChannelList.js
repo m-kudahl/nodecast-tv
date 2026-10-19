@@ -798,9 +798,11 @@ class ChannelList {
      */
     async fetchSourceChannels(sourceId, sourceType) {
         // Both endpoints are independent; serialising them doubled the round trips.
-        const [categories, streams] = await Promise.all([
+        const [categories, streams, source] = await Promise.all([
             API.proxy.xtream.liveCategories(sourceId),
-            API.proxy.xtream.liveStreams(sourceId)
+            API.proxy.xtream.liveStreams(sourceId),
+            // Enigma2/OpenWebif M3U sources need to zap the receiver before streaming
+            sourceType === 'm3u' ? API.sources.getById(sourceId) : null
         ]);
 
         const prefix = `${sourceType}_${sourceId}`;
@@ -832,7 +834,12 @@ class ChannelList {
                 sourceType
             };
             // M3U has direct URLs; Xtream builds them server-side.
-            if (sourceType === 'm3u') channel.url = stream.stream_url;
+            if (sourceType === 'm3u') {
+                channel.url = stream.stream_url;
+                channel.program = stream.program || null;
+                channel.zapBeforeStreaming = source?.zapBeforeStreaming || false;
+                channel.zapDelay = source?.zapDelay ?? 1500;
+            }
             return channel;
         });
 

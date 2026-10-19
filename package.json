@@ -1,12 +1,13 @@
 {
     "name": "nodecast-tv",
-    "version": "2.1.4",
+    "version": "2.2.7",
     "description": "Modern IPTV Player",
     "license": "GPL-3.0-only",
     "main": "server/index.js",
     "scripts": {
         "start": "node server/index.js",
-        "dev": "node --watch server/index.js"
+        "dev": "node --watch server/index.js",
+        "test": "node --test"
     },
     "dependencies": {
         "@ffprobe-installer/ffprobe": "^2.1.2",
@@ -29,5 +30,9 @@
     },
     "engines": {
         "node": ">=18.0.0"
+    },
+    "devDependencies": {
+        "hls.js": "1.5.7",
+        "playwright": "1.62.1"
     }
 }

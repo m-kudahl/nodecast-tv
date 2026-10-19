@@ -2,7 +2,9 @@ const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
 
-const dataDir = path.join(__dirname, '..', '..', 'data');
+const dataDir = process.env.NODECAST_DATA_DIR
+    ? path.resolve(process.env.NODECAST_DATA_DIR)
+    : path.join(__dirname, '..', '..', 'data');
 const dbPath = path.join(dataDir, 'content.db');
 
 // Ensure data directory exists
@@ -144,6 +146,13 @@ function initSchema() {
     try {
         db.exec(`ALTER TABLE watch_history ADD COLUMN source_id INTEGER`);
         console.log('[SQLite] Added source_id column to watch_history');
+    } catch (e) {
+        // Column already exists, ignore
+    }
+
+    try {
+        db.exec(`ALTER TABLE playlist_items ADD COLUMN program TEXT`);
+        console.log('[SQLite] Added program column to playlist_items');
     } catch (e) {
         // Column already exists, ignore
     }
