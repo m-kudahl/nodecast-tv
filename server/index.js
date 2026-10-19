@@ -214,42 +214,10 @@ app.use('/api/settings', require('./routes/settings'));
 app.use('/api/history', require('./routes/history'));
 app.use('/api/openwebif', require('./routes/openwebif'));
 
-// A Chromecast fetches the media itself, so it needs an address that resolves on
-// the LAN - 'localhost' means the Chromecast, not this server. The browser only
-// asks when the page is being viewed on localhost; otherwise whatever host the
-// user typed already demonstrably routes.
-app.get('/api/cast/host', (req, res) => {
-    const nets = require('os').networkInterfaces();
-    const addresses = [];
-    for (const [name, ifaces] of Object.entries(nets)) {
-        for (const iface of ifaces || []) {
-            if (iface.family !== 'IPv4' || iface.internal) continue;
-            // Skip interfaces a Chromecast on the local network can't be reached over.
-            if (/^(docker|br-|veth|tun|tap|virbr|zt|wg)/.test(name)) continue;
-            addresses.push({ name, address: iface.address });
-        }
-    }
-    res.json({ addresses, port: PORT });
-});
-
-// The Chromecast's receiver runs on Google's origin and can't carry our login
-// cookie, so cast media is reached by the session's unguessable cast token instead
-// of the authenticated /api/transcode routes. Only that session's HLS is exposed.
-app.get('/cast-media/:token/:file', async (req, res) => {
-    // Cross-origin fetch from the receiver - without this it sits on "loading" forever.
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    const session = require('./services/transcodeSession').getSessionByCastToken(req.params.token);
-    if (!session) return res.sendStatus(404);
-    if (req.params.file === 'stream.m3u8') {
-        const playlist = await session.getPlaylist();
-        if (!playlist) return res.sendStatus(404);
-        res.type('application/vnd.apple.mpegurl').set('Cache-Control', 'no-cache').send(playlist);
-    } else {
-        const segment = await session.getSegment(req.params.file);
-        if (!segment) return res.sendStatus(404);
-        res.type('video/MP2T').sendFile(segment);
-    }
-});
+// Chromecast: LAN address lookup for the browser, and token-gated media for the receiver
+const cast = require('./routes/cast');
+app.use('/api/cast', cast.api(PORT));
+app.use('/cast-media', cast.media(require('./services/transcodeSession').getSessionByCastToken));
 
 // SPA fallback - serve index.html for all non-API routes
 app.get('*', (req, res) => {

@@ -77,8 +77,9 @@ class TranscodeSession extends EventEmitter {
     constructor(url, options = {}) {
         super();
         this.id = generateSessionId();
-        // Bearer capability for /cast-media: a Chromecast can't send our login cookie
-        this.castToken = crypto.randomBytes(16).toString('hex');
+        // Bearer capability for /cast-media (a Chromecast can't send our login cookie).
+        // Only sessions started for casting get one; every other session stays cookie-only.
+        this.castToken = options.cast ? crypto.randomBytes(16).toString('hex') : null;
         this.url = url;
         this.ownerId = options.ownerId ?? null;
         this.playbackLeaseId = normalizePlaybackLeaseId(options.playbackLeaseId);
@@ -811,6 +812,7 @@ function getSession(sessionId, ownerId = null) {
 }
 
 function getSessionByCastToken(token) {
+    if (typeof token !== 'string' || !/^[0-9a-f]{32}$/.test(token)) return null;
     for (const session of sessions.values()) {
         if (session.castToken === token) return session;
     }

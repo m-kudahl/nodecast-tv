@@ -34,7 +34,7 @@ transcodeSession.startCleanupInterval();
  * Body: { url: string, seekOffset?: number }
  */
 router.post('/session', startupLimit, async (req, res) => {
-    const { url, seekOffset, videoMode, videoCodec, audioCodec, audioChannels, videoHeight, playbackLeaseId, requestSequence, isLive, program } = req.body;
+    const { url, seekOffset, videoMode, videoCodec, audioCodec, audioChannels, videoHeight, playbackLeaseId, requestSequence, isLive, program, cast } = req.body;
     let programNumber;
     try { programNumber = parseProgram(program); } catch (error) { return res.status(400).json({ error: error.message }); }
     const normalizedSeek = Number(seekOffset ?? 0);
@@ -58,7 +58,7 @@ router.post('/session', startupLimit, async (req, res) => {
 
     try {
         session = await transcodeSession.createSession(url, {
-            playbackLeaseId, requestSequence, isLive: isLive === true,
+            playbackLeaseId, requestSequence, isLive: isLive === true, cast: cast === true,
             ownerId: req.user.id,
             ffmpegPath,
             userAgent,
@@ -94,7 +94,7 @@ router.post('/session', startupLimit, async (req, res) => {
         res.json({
             sessionId: session.id,
             playlistUrl: `/api/transcode/${session.id}/stream.m3u8`,
-            castUrl: `/cast-media/${session.castToken}/stream.m3u8`,
+            ...(session.castToken && { castUrl: `/cast-media/${session.castToken}/stream.m3u8` }),
             status: session.status
         });
 

@@ -20,6 +20,7 @@ class CastController {
         this.sdkFailure = null;     // set if the SDK loaded but refused (e.g. Media Router off)
         this.sessionId = null;      // our transcode session, not the cast session
         this.channel = null;
+        this.generation = 0;        // bumped per castChannel(), so a slow superseded cast backs off
         this.button = document.getElementById('btn-cast');
         this.button?.addEventListener('click', () => this.toggle());
     }
@@ -113,13 +114,34 @@ class CastController {
     async castChannel(channel, streamUrl) {
         const session = cast.framework.CastContext.getInstance().getCurrentSession();
         if (!session) return;
+        const generation = ++this.generation;
+        const player = window.app?.player;
 
         // Nothing should be playing locally as well as on the TV.
-        window.app?.player?.stop?.();
+        player?.stop?.();
         await this.releaseSession();
 
-        this.channel = channel;
-        const url = await this.transcodeUrlFor(streamUrl);
+        try {
+            // Enigma2/OpenWebif receivers have to be tuned before their stream carries the channel.
+            await player?.zapBeforeStreaming?.(channel, streamUrl);
+            if (generation !== this.generation) return;
+
+            const { sessionId, url } = await this.transcodeUrlFor(channel, streamUrl);
+            // A newer cast won the race: drop this session rather than adopt it.
+            if (generation !== this.generation) return this.deleteSession(sessionId);
+            this.sessionId = sessionId;
+            this.channel = channel;
+            await this.load(session, channel, url);
+        } catch (err) {
+            if (generation !== this.generation) return;
+            console.error('[Cast] Could not cast channel:', err);
+            await this.releaseSession();
+            // chrome.cast.Error carries a description rather than a message
+            alert(`Could not cast ${channel.name || 'this channel'}: ${err.message || err.description || err.code || err}`);
+        }
+    }
+
+    async load(session, channel, url) {
         console.log('[Cast] Loading', url);
 
         const media = new chrome.cast.media.MediaInfo(url, 'application/x-mpegurl');
@@ -140,10 +162,12 @@ class CastController {
      * Start a transcode session for this stream and return its playlist as an
      * absolute URL the Chromecast can actually reach.
      */
-    async transcodeUrlFor(streamUrl) {
+    async transcodeUrlFor(channel, streamUrl) {
+        const program = channel.program ?? null; // MPEG-TS program, for multi-program (Enigma2) streams
         let info = {};
         try {
-            info = await fetch(`/api/probe?url=${encodeURIComponent(streamUrl)}`).then(r => r.json());
+            const query = `url=${encodeURIComponent(streamUrl)}` + (program == null ? '' : `&program=${encodeURIComponent(program)}`);
+            info = await fetch(`/api/probe?${query}`).then(r => r.json());
         } catch (err) {
             console.warn('[Cast] Probe failed, assuming the video needs encoding:', err.message);
         }
@@ -155,7 +179,9 @@ class CastController {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 url: streamUrl,
+                cast: true,
                 isLive: true,
+                program,
                 videoMode,
                 videoCodec: info.video,
                 audioCodec: info.audio,
@@ -163,11 +189,16 @@ class CastController {
                 videoHeight: info.height
             })
         });
-        if (!res.ok) throw new Error('Could not start a transcode session for casting');
-
-        const { sessionId, castUrl } = await res.json();
-        this.sessionId = sessionId;
-        return (await this.castableOrigin()) + castUrl;
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok || !body.castUrl) {
+            throw new Error(body.reason || body.error || 'the server could not start a transcode session');
+        }
+        try {
+            return { sessionId: body.sessionId, url: (await this.castableOrigin()) + body.castUrl };
+        } catch (err) {
+            await this.deleteSession(body.sessionId);
+            throw err;
+        }
     }
 
     /**
@@ -193,10 +224,13 @@ class CastController {
 
     /** Tear down the transcode session we started, so ffmpeg stops pulling the stream. */
     async releaseSession() {
-        if (!this.sessionId) return;
         const id = this.sessionId;
         this.sessionId = null;
         this.channel = null;
+        if (id) await this.deleteSession(id);
+    }
+
+    async deleteSession(id) {
         try {
             await fetch(`/api/transcode/${id}`, { method: 'DELETE' });
         } catch (err) {
@@ -205,8 +239,9 @@ class CastController {
     }
 }
 
-// The SDK calls this when it finishes loading; it only loads in Chrome, and only
-// in a secure context (https, or http://localhost).
+// The SDK only works in Chrome and only in a secure context (https, or
+// http://localhost), so don't fetch Google's script anywhere it can't run.
+CastController.SDK_URL = 'https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1';
 window.castController = new CastController();
 window.__onGCastApiAvailable = function (isAvailable) {
     if (!isAvailable) {
@@ -218,3 +253,10 @@ window.__onGCastApiAvailable = function (isAvailable) {
     }
     window.castController.init();
 };
+if (window.chrome && window.isSecureContext) {
+    // After __onGCastApiAvailable exists: the SDK calls it once loaded.
+    const sdk = document.createElement('script');
+    sdk.src = CastController.SDK_URL;
+    sdk.async = true;
+    document.head.appendChild(sdk);
+}
