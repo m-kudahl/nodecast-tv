@@ -569,7 +569,10 @@ class VideoPlayer {
         this.watchdog = new StallWatchdog(() => this.video, {
             isActive: () => !!this.currentChannel && !this.recovering,
             kick: () => this.kickLiveEdge(),
-            recover: () => this.hls?.recoverMediaError(),
+            // Not hls.recoverMediaError() directly: reattaching media leaves the video
+            // paused, so the watchdog would take it for a user pause and give up.
+            // requestRecovery() resumes; if it's rate-limited the reload step follows.
+            recover: () => this.audioRecovery?.requestRecovery('stall'),
             reload: () => this.reloadCurrentChannel()
         });
         this.watchdog.start();
@@ -999,6 +1002,7 @@ class VideoPlayer {
                 return;
             }
             console.error('Fatal HLS error:', data.details);
+            if (this.watchdog?.fatal()) return;
             this.audioRecovery.dispose();
             hls.destroy();
             this.hls = null;

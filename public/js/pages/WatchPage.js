@@ -234,7 +234,10 @@ class WatchPage {
         this.watchdog = new StallWatchdog(() => this.video, {
             isActive: () => !!this.content && !this.recovering,
             kick: () => this.kickBuffer(),
-            recover: () => this.hls?.recoverMediaError(),
+            // Not hls.recoverMediaError() directly: reattaching media leaves the video
+            // paused, so the watchdog would take it for a user pause and give up.
+            // requestRecovery() resumes; if it's rate-limited the reload step follows.
+            recover: () => this.audioRecovery?.requestRecovery('stall'),
             reload: () => this.reloadCurrentVideo()
         });
         this.watchdog.start();
@@ -658,7 +661,7 @@ class WatchPage {
                 if (!url.startsWith('/api/') && (data.type === Hls.ErrorTypes.NETWORK_ERROR)) {
                     console.log('[WatchPage] Retrying via proxy...');
                     this.playHls(`/api/proxy/stream?url=${encodeURIComponent(this.currentUrl)}`);
-                } else {
+                } else if (!this.watchdog?.fatal()) {
                     this.hls.destroy();
                     this.stopTranscodeSession();
                 }

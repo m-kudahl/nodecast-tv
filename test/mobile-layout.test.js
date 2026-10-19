@@ -3,7 +3,7 @@ for (const engine of ['chromium','webkit']) {
     test(`${engine} keeps mobile player controls visible and clickable through viewport changes`,
         { skip: process.env.NODECAST_BROWSER_TESTS === '1' ? false : 'Browser tests enabled in CI', timeout: 45000 }, async t => {
             const type=require('playwright')[engine],root=path.join(__dirname,'../public');
-            const scripts=['/js/pages/WatchPage.js','/js/pages/SeriesPage.js'];
+            const scripts=['/js/stallWatchdog.js','/js/pages/WatchPage.js','/js/pages/SeriesPage.js'];
             const html=fs.readFileSync(path.join(root,'index.html'),'utf8').replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi,'').replace(/<link\b[^>]*https:\/\/[^>]*>/gi,'');
             const server=http.createServer((req,res)=>{
                 const name=new URL(req.url,'http://fixture').pathname;

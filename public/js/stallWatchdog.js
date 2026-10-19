@@ -15,7 +15,24 @@ class StallWatchdog {
         this.getVideo = getVideo;
         this.steps = steps;
         this.timer = null;
+        this.fatalCount = 0;
+        this.reloadOnVisible = false;
         this.reset();
+    }
+
+    /**
+     * hls.js gave up (fatal error). Tearing the player down leaves the video paused,
+     * which tick() reads as a user pause, so nothing would ever retry. Reload instead -
+     * deferred while hidden, since a throttled window on another workspace or monitor
+     * times out on purpose. Returns false after 3 straight failures so the caller can
+     * show an error rather than retry a dead stream forever.
+     */
+    fatal() {
+        if (this.fatalCount >= 3) return false;
+        this.fatalCount++;
+        if (StallWatchdog.hidden()) this.reloadOnVisible = true;
+        else this.steps.reload();
+        return true;
     }
 
     /**
@@ -41,6 +58,14 @@ class StallWatchdog {
         this.stop();
         this.reset();
         this.timer = setInterval(() => this.tick(), StallWatchdog.TICK);
+        if (!this.onVisible && typeof document !== 'undefined') {
+            this.onVisible = () => {
+                if (StallWatchdog.hidden() || !this.reloadOnVisible) return;
+                this.reloadOnVisible = false;
+                this.steps.reload();
+            };
+            document.addEventListener('visibilitychange', this.onVisible);
+        }
     }
 
     stop() {
@@ -63,11 +88,12 @@ class StallWatchdog {
             this.lastTime = v.currentTime;
             this.stalledMs = 0;
             this.lastAction = null;
+            this.fatalCount = 0;
             return;
         }
 
         this.stalledMs += StallWatchdog.TICK;
-        const action = StallWatchdog.action(this.stalledMs, document.hidden, this.lastAction);
+        const action = StallWatchdog.action(this.stalledMs, StallWatchdog.hidden(), this.lastAction);
         if (!action) return;
 
         console.warn(`[Watchdog] stalled ${this.stalledMs / 1000}s -> ${action}`);
@@ -83,6 +109,7 @@ class StallWatchdog {
 }
 
 StallWatchdog.TICK = 2000;
+StallWatchdog.hidden = () => typeof document !== 'undefined' && document.hidden;
 
 if (typeof window !== 'undefined') window.StallWatchdog = StallWatchdog;
 if (typeof module !== 'undefined') module.exports = StallWatchdog;
