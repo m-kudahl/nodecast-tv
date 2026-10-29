@@ -688,6 +688,17 @@
                 </div>
               </div>
               <div class="setting-item">
+                <label class="setting-toggle">
+                  <input type="checkbox" id="setting-probe-live-tc">
+                  <span class="toggle-slider"></span>
+                </label>
+                <div class="setting-info">
+                  <span class="setting-label">Probe Live Channels</span>
+                  <span class="setting-hint">Inspect live streams before playing to pick the right mode. Turn off if
+                    your provider allows only one connection; channels with AC3/EAC3 audio may then play silent.</span>
+                </div>
+              </div>
+              <div class="setting-item">
                 <div class="setting-info" style="flex: 1;">
                   <span class="setting-label">Stream Output Format</span>
                   <span class="setting-hint">Container format for Xtream streams. Try TS if you experience buffering
@@ -1117,7 +1128,7 @@
   <script src="/js/components/HlsAudioRecovery.js?v=1"></script>
   <script src="/js/components/PlaybackProbe.js?v=2"></script>
   <script src="/js/components/PlayerFullscreen.js?v=1"></script>
-  <script src="/js/components/VideoPlayer.js?v=11"></script>
+  <script src="/js/components/VideoPlayer.js?v=12"></script>
   <script src="/js/components/ChannelList.js?v=5"></script>
   <script src="/js/components/SourceManager.js?v=3"></script>
   <script src="/js/components/EpgGuide.js?v=3"></script>
@@ -1126,7 +1137,7 @@
   <script src="/js/pages/Guide.js?v=2"></script>
   <script src="/js/pages/MoviesPage.js?v=4"></script>
   <script src="/js/pages/SeriesPage.js?v=1"></script>
-  <script src="/js/pages/Settings.js?v=2"></script>
+  <script src="/js/pages/Settings.js?v=3"></script>
   <script src="/js/pages/WatchPage.js?v=13"></script>
   <script src="/js/app.js?v=5"></script>
 

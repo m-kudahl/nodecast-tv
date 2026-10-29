@@ -726,9 +726,11 @@ class VideoPlayer {
 
             // Determine if HLS or direct stream
             this.currentUrl = streamUrl;
+            // Each probe is its own provider connection; one-connection providers reject the stream that follows
+            const skipProbe = this.settings.probeLiveStreams === false;
 
             // CHECK: Auto Transcode (Smart) - probe first, then decide
-            if (this.settings.autoTranscode) {
+            if (this.settings.autoTranscode && !skipProbe) {
                 console.log('[Player] Auto Transcode enabled. Probing stream...');
                 try {
                     const info = await (this.playbackProbe ||= new PlaybackProbe(fetch)).read(streamUrl, { program: channel?.program });
@@ -823,7 +825,7 @@ class VideoPlayer {
 
                 // Probe to get video codec for HEVC tag handling
                 let videoCodec = 'unknown';
-                try {
+                if (!skipProbe) try {
                     const info = await (this.playbackProbe ||= new PlaybackProbe(fetch)).read(streamUrl, { program: channel?.program });
                     if (this.playbackGeneration !== playbackGeneration) return;
                 videoCodec = info.video;
@@ -869,11 +871,13 @@ class VideoPlayer {
 
             // Force Remux: Route through FFmpeg for container conversion
             // Applies to: 1) .ts streams when detected, or 2) ALL non-HLS streams when enabled
-            if ((this.settings.forceRemux || channel?.program != null) && (isRawTs || isExtensionless)) {
+            // Unprobed Auto mode remuxes too, as the probe would have chosen for these streams
+            const autoRemux = skipProbe && this.settings.autoTranscode;
+            if ((this.settings.forceRemux || autoRemux || channel?.program != null) && (isRawTs || isExtensionless)) {
                 console.log('[Player] Force Remux enabled. Routing through FFmpeg remux...');
                 console.log('[Player] Stream type:', isRawTs ? 'Raw TS' : 'Extension-less (assumed TS)');
-                this.updateTranscodeStatus('remuxing', this.settings.forceRemux ? 'Remux (Force)' : 'Remux (Program)');
-                if (!probeInfo) {
+                this.updateTranscodeStatus('remuxing', this.settings.forceRemux ? 'Remux (Force)' : channel?.program != null ? 'Remux (Program)' : 'Remux (Auto)');
+                if (!probeInfo && !skipProbe) {
                     try {
                         probeInfo = await (this.playbackProbe ||= new PlaybackProbe(fetch)).read(streamUrl, { program: channel?.program });
                     } catch (error) {

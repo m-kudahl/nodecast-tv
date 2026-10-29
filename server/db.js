@@ -80,6 +80,7 @@ function getDefaultSettings() {
     forceVideoTranscode: false, // Force Video Transcode
     forceRemux: false,
     autoTranscode: true,
+    probeLiveStreams: true,       // false: skip ffprobe on Live TV (one provider connection per channel)
     streamFormat: 'm3u8',
     epgRefreshInterval: '24',
     // User-Agent settings

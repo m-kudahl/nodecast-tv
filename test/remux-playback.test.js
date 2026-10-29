@@ -97,3 +97,14 @@ for (const name of ['VideoPlayer', 'WatchPage']) {
         assert.equal(player.video.src, '');
     });
 }
+
+test('VideoPlayer skips every Live TV probe when probing is turned off', async () => {
+    for (const mode of ['autoTranscode', 'forceRemux', 'forceTranscode']) {
+        const requests = [];
+        const player = playerFixture('VideoPlayer', { [mode]: true, probeLiveStreams: false }, async url => { requests.push(url); });
+        await player.start('http://provider.test/live/user/pass/1');
+        assert.equal(requests.length, 0, mode);
+        if (mode === 'forceTranscode') assert.equal(player.sessions[0].options.videoCodec, 'unknown');
+        else assert.equal(new URL(player.video.src, 'http://app.test').pathname, '/api/remux', mode);
+    }
+});
